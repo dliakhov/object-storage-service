@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/dliakhov/object-storage-service/internal/server"
+	"github.com/dliakhov/object-storage-service/internal/storage"
 )
 
 func main() {
@@ -13,7 +14,7 @@ func main() {
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	srv := server.New(*port, logger)
+	srv := server.New(*port, logger, storage.NewMemoryStore())
 
 	if err := srv.Run(); err != nil {
 		logger.Error("server stopped", slog.String("error", err.Error()))
