@@ -146,6 +146,42 @@ func newTestServer(t *testing.T) *httptest.Server {
 	return ts
 }
 
+func TestServerInvalidInputReturns400(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	fileStore, err := storage.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	logger := slog.New(slog.DiscardHandler)
+	ts := httptest.NewServer(server.New(0, logger, fileStore).Handler())
+	t.Cleanup(ts.Close)
+
+	// "~" is a valid URL character but rejected by validateName, so r.PathValue
+	// delivers it to the handler as-is and the store returns InvalidInputError.
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"PUT invalid objectID", http.MethodPut, "/objects/b/bad~name"},
+		{"GET invalid objectID", http.MethodGet, "/objects/b/bad~name"},
+		{"DELETE invalid objectID", http.MethodDelete, "/objects/b/bad~name"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			status, _ := doRequest(t, ts, tc.method, tc.path, "")
+			if status != http.StatusBadRequest {
+				t.Errorf("got %d, want 400", status)
+			}
+		})
+	}
+}
+
 func TestObjectEndpoints(t *testing.T) {
 	t.Parallel()
 
