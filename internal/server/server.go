@@ -72,6 +72,10 @@ func (s *Server) handlePutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.Put(r.Context(), bucket, objectID, data); err != nil {
+		if _, ok := errors.AsType[storage.InvalidInputError](err); ok {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		s.logger.Error("store put", slog.String("bucket", bucket), slog.String("object_id", objectID), slog.String("error", err.Error()))
 		http.Error(w, "failed to store object", http.StatusInternalServerError)
 		return
@@ -98,6 +102,10 @@ func (s *Server) handleGetObject(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := errors.AsType[storage.NotFoundError](err); ok {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if _, ok := errors.AsType[storage.InvalidInputError](err); ok {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -127,6 +135,10 @@ func (s *Server) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := errors.AsType[storage.NotFoundError](err); ok {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if _, ok := errors.AsType[storage.InvalidInputError](err); ok {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

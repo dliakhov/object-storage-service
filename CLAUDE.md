@@ -10,42 +10,69 @@ make test    # run tests with race detector
 make lint    # run golangci-lint
 ```
 
-Run locally:
+Run locally (memory, default):
 ```bash
 ./object-storage-service --port 8080
 ```
 
-Run in Docker:
+Run locally with file storage:
+```bash
+./object-storage-service --port 8080 --storage=file --storage-dir=./data
+```
+
+Run in Docker (memory):
 ```bash
 docker build -t object-storage-service .
 docker run -p 8080:8080 object-storage-service
-# Override port:
-docker run -p 9090:9090 object-storage-service --port 9090
+```
+
+Run in Docker with file storage:
+```bash
+docker run -p 8080:8080 \
+  -e STORAGE_MODE=file \
+  -e STORAGE_DIR=/data \
+  -v ./data:/data \
+  object-storage-service
+# Or via Makefile:
+make docker-run-file
 ```
 
 ## Project Structure
 
 ```
-cmd/server/          # main entry point — CLI flag parsing only
+cmd/server/          # main entry point — CLI flag parsing and storage wiring
 internal/server/     # HTTP server, route registration, handlers
-internal/storage/    # Store interface + MemoryStore implementation
+internal/storage/    # Store interface, MemoryStore, FileStore
 ```
 
-`cmd/server/main.go` parses the `--port` flag, creates a `*server.Server` with a `storage.NewMemoryStore()`, and calls `Run()`.
+`cmd/server/main.go` parses `--port`, `--storage`, and `--storage-dir` flags (each with an env-var fallback: `PORT`, `STORAGE_MODE`, `STORAGE_DIR`), constructs the chosen store, and calls `srv.Run()`.
 `internal/server/server.go` owns the `http.Server` (with timeouts), mux, and handler methods.
-`internal/storage/store.go` defines the `Store` interface and `NotFoundError`.
+`internal/storage/store.go` defines the `Store` interface, `NotFoundError`, and `InvalidInputError`.
 `internal/storage/memory.go` implements `MemoryStore` with per-object locking and per-bucket content deduplication.
+`internal/storage/filestore.go` implements `FileStore` with per-bucket locking, content deduplication via SHA-256, atomic writes, and startup GC.
+
+## CLI Flags / Environment Variables
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--port` | — | `8080` | TCP port to listen on |
+| `--storage` | `STORAGE_MODE` | `memory` | Backend: `memory` or `file` |
+| `--storage-dir` | `STORAGE_DIR` | `./data` | Root directory for file storage |
+
+CLI flags always take precedence over environment variables.
 
 ## API
 
-| Method | Path | Success | Description |
-|--------|------|---------|-------------|
-| PUT | `/objects/{bucket}/{objectID}` | 201 `{"id":"<objectID>"}` | Store object; creates bucket if needed |
-| GET | `/objects/{bucket}/{objectID}` | 200 body bytes | Retrieve object |
-| DELETE | `/objects/{bucket}/{objectID}` | 200 | Remove object |
-| GET | `/health` | 200 | Health check |
+| Method | Path | Success | Error |Description |
+|--------|------|---------|-------|-------------|
+| PUT | `/objects/{bucket}/{objectID}` | 201 `{"id":"<objectID>"}` | 400 invalid name | Store object; creates bucket if needed |
+| GET | `/objects/{bucket}/{objectID}` | 200 body bytes | 400 invalid name, 404 not found | Retrieve object |
+| DELETE | `/objects/{bucket}/{objectID}` | 200 | 400 invalid name, 404 not found | Remove object |
+| GET | `/health` | 200 | — | Health check |
 
-## Storage Design
+Bucket and objectID names must match `[a-zA-Z0-9._-]+` and must not be `.` or `..`. Invalid names return 400.
+
+## MemoryStore Design
 
 `MemoryStore` uses three-level locking for maximum concurrency:
 
@@ -57,6 +84,30 @@ internal/storage/    # Store interface + MemoryStore implementation
 Lock ordering is always `e.mu` → `b.blobsMu`. Bucket and entry creation use a double-check pattern (RLock fast path, Lock slow path) to avoid write-lock contention on the common read case.
 
 Content deduplication is per-bucket: objects with identical content share one blob, tracked by SHA-256 hash with a reference count. The blob is freed when refcount reaches 0.
+
+## FileStore Design
+
+Directory layout on disk:
+```
+<root>/
+  <bucket>/
+    blobs/<sha256>      ← blob content (one file per unique content hash)
+    objects/<objectID>  ← text file containing the sha256 of the referenced blob
+```
+
+`FileStore` uses two-level locking:
+
+- `f.mu` (store-level RWMutex) — protects the `buckets` map
+- `bl.mu` (bucket-level RWMutex) — serialises all operations within one bucket
+
+`Get` and `Delete` use `requireBucketLock`, which checks disk when the in-memory map is empty (e.g. after a restart) to avoid inserting map entries for non-existent buckets.
+
+Key implementation details:
+- **Atomic writes**: `os.CreateTemp` + `os.Rename` (POSIX atomic) prevents partial reads
+- **Content deduplication**: blob file is written only when `os.Stat` returns `ErrNotExist`
+- **Integrity check on `Get`**: SHA-256 of the blob is recomputed and compared against the filename
+- **Path confinement**: `validateName` allowlist + `confine()` defence-in-depth on every constructed path, including blob paths derived from ref-file content
+- **Startup GC**: `NewFileStore` calls `cleanupStale` to remove leftover `.tmp-*` files and orphaned blobs from any prior crash
 
 ## Adding a New Endpoint
 
