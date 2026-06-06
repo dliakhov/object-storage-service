@@ -218,6 +218,14 @@ func cleanupStale(root string) {
 	}
 }
 
+// Check verifies that the storage root is accessible, satisfying the Checker interface.
+func (f *FileStore) Check(_ context.Context) error {
+	if _, err := os.Stat(f.root); err != nil {
+		return fmt.Errorf("storage root unavailable: %w", err)
+	}
+	return nil
+}
+
 // Put stores data under objectID in the given bucket.
 // If objectID already exists, its content is replaced.
 // Identical content within the same bucket is stored only once.

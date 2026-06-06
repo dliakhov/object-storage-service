@@ -13,6 +13,12 @@ type InvalidInputError struct{ Msg string }
 
 func (e InvalidInputError) Error() string { return e.Msg }
 
+// Checker is an optional interface a Store may implement to report its readiness.
+// If a store does not implement Checker it is assumed to be always ready.
+type Checker interface {
+	Check(ctx context.Context) error
+}
+
 // Store is the persistence abstraction for objects organized by buckets.
 type Store interface {
 	Put(ctx context.Context, bucket, objectID string, data []byte) error

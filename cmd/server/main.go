@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/dliakhov/object-storage-service/internal/server"
 	"github.com/dliakhov/object-storage-service/internal/storage"
 )
+
+const shutdownTimeout = 30 * time.Second
 
 func main() {
 	port := flag.Int("port", 8080, "port to listen on")
@@ -24,10 +30,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv := server.New(*port, logger, store)
-	if err := srv.Run(); err != nil {
-		logger.Error("server stopped", slog.String("error", err.Error()))
+	if err := run(logger, server.New(*port, logger, store)); err != nil {
+		logger.Error("server error", slog.String("error", err.Error()))
 		os.Exit(1)
+	}
+}
+
+// run starts the server and blocks until it exits cleanly or a signal is received.
+// Returning an error means the process should exit non-zero.
+func run(logger *slog.Logger, srv *server.Server) error {
+	runErr := make(chan error, 1)
+	go func() { runErr <- srv.Run() }()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	select {
+	case err := <-runErr:
+		return err
+	case sig := <-sigCh:
+		logger.Info("shutting down", slog.String("signal", sig.String()))
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			logger.Error("shutdown error", slog.String("error", err.Error()))
+		}
+		return <-runErr
 	}
 }
 

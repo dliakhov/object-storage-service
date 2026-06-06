@@ -685,6 +685,33 @@ func TestFileStore_StartupCleansTempFiles(t *testing.T) {
 	}
 }
 
+func TestFileStore_Check(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid root returns nil", func(t *testing.T) {
+		t.Parallel()
+		s := newFileStore(t)
+		if err := s.Check(context.Background()); err != nil {
+			t.Errorf("Check: %v", err)
+		}
+	})
+
+	t.Run("removed root returns error", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		s, err := storage.NewFileStore(dir)
+		if err != nil {
+			t.Fatalf("NewFileStore: %v", err)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatalf("RemoveAll: %v", err)
+		}
+		if err := s.Check(context.Background()); err == nil {
+			t.Error("expected error for missing root, got nil")
+		}
+	})
+}
+
 func TestFileStore_InvalidInputErrorType(t *testing.T) {
 	t.Parallel()
 
