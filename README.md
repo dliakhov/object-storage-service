@@ -30,6 +30,31 @@ make build
 
 ## Running in Docker
 
+### Using the published image
+
+The image is automatically built and pushed to GitHub Container Registry on every merge to `main`.
+
+```bash
+# Memory storage (default)
+docker pull ghcr.io/dliakhov/object-storage-service:latest
+docker run -p 8080:8080 ghcr.io/dliakhov/object-storage-service:latest
+
+# File storage — mount a volume and pass env vars
+docker run -p 8080:8080 \
+  -e STORAGE_MODE=file \
+  -e STORAGE_DIR=/data \
+  -v ./data:/data \
+  ghcr.io/dliakhov/object-storage-service:latest
+```
+
+A SHA-tagged image is published alongside `latest` for each release, useful when you need a pinned version:
+
+```bash
+docker pull ghcr.io/dliakhov/object-storage-service:sha-abc1234
+```
+
+### Building locally
+
 ```bash
 # Build the image
 make docker-build
