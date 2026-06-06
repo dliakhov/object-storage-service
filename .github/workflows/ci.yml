@@ -37,12 +37,38 @@ jobs:
           version: v2.10.1
           args: ./...
 
-  docker-build:
-    name: Docker Build
+  docker:
+    name: Docker Build & Push
     runs-on: ubuntu-latest
     needs: [test, lint]
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v6
 
-      - name: Build Docker image
-        run: make docker-build
+      - name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
