@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -31,6 +32,12 @@ func TestServer(t *testing.T) {
 			name:           "GET /health returns 200",
 			method:         http.MethodGet,
 			path:           "/health",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "GET /ready returns 200",
+			method:         http.MethodGet,
+			path:           "/ready",
 			expectedStatus: http.StatusOK,
 		},
 		{
@@ -144,6 +151,56 @@ func newTestServer(t *testing.T) *httptest.Server {
 	ts := httptest.NewServer(server.New(0, logger, storage.NewMemoryStore()).Handler())
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+func TestServerReady(t *testing.T) {
+	t.Parallel()
+
+	t.Run("memory store is always ready", func(t *testing.T) {
+		t.Parallel()
+		ts := newTestServer(t)
+		status, _ := doRequest(t, ts, http.MethodGet, "/ready", "")
+		if status != http.StatusOK {
+			t.Errorf("got %d, want 200", status)
+		}
+	})
+
+	t.Run("file store with valid root is ready", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		fileStore, err := storage.NewFileStore(dir)
+		if err != nil {
+			t.Fatalf("NewFileStore: %v", err)
+		}
+		logger := slog.New(slog.DiscardHandler)
+		ts := httptest.NewServer(server.New(0, logger, fileStore).Handler())
+		t.Cleanup(ts.Close)
+
+		status, _ := doRequest(t, ts, http.MethodGet, "/ready", "")
+		if status != http.StatusOK {
+			t.Errorf("got %d, want 200", status)
+		}
+	})
+
+	t.Run("file store with removed root returns 503", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		fileStore, err := storage.NewFileStore(dir)
+		if err != nil {
+			t.Fatalf("NewFileStore: %v", err)
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatalf("RemoveAll: %v", err)
+		}
+		logger := slog.New(slog.DiscardHandler)
+		ts := httptest.NewServer(server.New(0, logger, fileStore).Handler())
+		t.Cleanup(ts.Close)
+
+		status, _ := doRequest(t, ts, http.MethodGet, "/ready", "")
+		if status != http.StatusServiceUnavailable {
+			t.Errorf("got %d, want 503", status)
+		}
+	})
 }
 
 func TestServerInvalidInputReturns400(t *testing.T) {
