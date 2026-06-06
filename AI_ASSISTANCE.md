@@ -4,7 +4,7 @@ For this task I used **Claude (Anthropic)** via the Claude Code CLI as a develop
 
 ## How I approached the task
 
-My first step before writing any feature code was setting up a solid foundation: initializing the project with the latest Go version and configuring `golangci-lint` with a strict ruleset.
+My first step before writing any feature code was setting up a solid foundation: initializing the project with the latest Go version and configuring `golangci-lint` with a strict ruleset. Then I configured GitHub Actions to validate every pull request — running tests with the race detector and the full linter suite before any merge.
 
 Once that was in place, I brought in Claude to help implement the first in-memory storage and in the next iteration it was implemented the file-based storage backend.
 
@@ -19,7 +19,5 @@ Nothing got merged automatically.
 ## What I actually did myself
 
 Setting up the project structure, Go version, and lint config. Defining the requirements and the security constraints I wanted enforced. Reviewing the design before implementation.
-
-## Honest take
 
 A significant portion of the code was written by Claude. But the shape of the project — the quality bar, the security requirements, the configuration model — came from decisions I made and directed.
